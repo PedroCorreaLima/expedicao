@@ -34,5 +34,12 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    
+        'omie' => [
+        'app_key' => env('OMIE_APP_KEY'),
+        'app_secret' => env('OMIE_APP_SECRET'),
+        'endpoint' => env('OMIE_ENDPOINT'),
+    ],
+
 
 ];
