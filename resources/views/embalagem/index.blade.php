@@ -93,6 +93,10 @@
         @endif
     </div>
 @endif
+<form method="POST" action="{{ route('pedidos.atualizar') }}" style="margin-bottom: 20px;">
+    @csrf
+    <button type="submit" class="btn btn-primary">🔄 Atualizar Pedidos Faturados</button>
+</form>
 
 <table>
     <thead>

@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use Carbon\Carbon;
 use App\Models\Pedido;
 use App\Services\OmiePedidoService;
+use Illuminate\Support\Facades\Http;
+
 
 class PedidoController extends Controller
 {
@@ -68,5 +70,43 @@ class PedidoController extends Controller
 
         return redirect()->back()->with('status', 'Início reiniciado.');
     }
+    
+    public function atualizarPedidos(Request $request)
+    {
+        $response = Http::withHeaders([
+            'Content-Type' => 'application/json',
+        ])->post('https://app.omie.com.br/api/v1/produtos/pedido/', [
+            'call'     => 'ListarPedidos',
+            'app_key'    => config('services.omie.app_key'),
+            'app_secret' => config('services.omie.app_secret'),
+            'param'    => [[
+                'pagina' => 1,
+                'registros_por_pagina' => 200,
+                'apenas_importado_api' => 'N',
+                'status_pedido' => 'FATURADO',
+                'etapa' => 60,
+                "data_faturamento_de" => "16/06/2024",
+                "data_faturamento_ate" => "16/06/2025"
+            ]]
+        ]);
 
+        $dados = $response->json();
+
+        foreach ($dados['pedido_venda_produto'] ?? [] as $pedido) {
+        Pedido::updateOrCreate(
+            ['codigo_pedido' => $pedido['cabecalho']['numero_pedido']],
+            [
+                'descricao' => $pedido['det'][0]['produto']['descricao'] ?? 'Sem descrição',
+                'quantidade' => $pedido['cabecalho']['quantidade_itens'] ?? 1,
+                'observacoes' => $pedido['observacoes']['obs_venda'] ?? 'Sem observações',
+                'cliente' => $pedido['cabecalho']['codigo_cliente'],
+                'data_previsao' => $pedido['cabecalho']['data_previsao'] ?? null,
+                'status' => 'FATURADO',
+                'etapa' => 60,
+                'dados_brutos' => json_encode($pedido),
+            ]
+        );
+        }
+        return redirect()->back()->with('success', 'Pedidos atualizados com sucesso!');
+    }
 }
