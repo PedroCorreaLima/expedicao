@@ -11,40 +11,23 @@ use Illuminate\Support\Facades\Http;
 
 class PedidoController extends Controller
 {
-    public function index(Request $request, OmiePedidoService $omie)
-    {
-        $data = $request->input('data');
-        $codigo = $request->input('codigo');
-        $omieDados = null;
+public function index(Request $request)
+{
+    $data = $request->input('data');
+    $codigo = $request->input('codigo');
 
-        $pedidos = \App\Models\Pedido::query()
-            ->when($data, fn($q) => $q->whereDate('inicio_embalagem', $data))
-            ->when($codigo, fn($q) => $q->where('codigo_pedido', $codigo))
-            ->get();
+    $pedidos = \App\Models\Pedido::query()
+        ->when($data, fn($q) => $q->whereDate('inicio_embalagem', $data))
+        ->when($codigo, fn($q) => $q->where('codigo_pedido', $codigo))
+        ->where(function ($q) {
+            $q->whereNull('inicio_embalagem')
+              ->orWhereNull('fim_embalagem');
+        })
+        ->get();
 
-        if ($codigo && $pedidos->isEmpty()) {
-            $omieDados = $omie->consultarPedidoPorCodigo($codigo);
+    return view('embalagem.index', compact('pedidos', 'data', 'codigo'));
+}
 
-            if (isset($omieDados['pedido_venda_produto']['cabecalho'])) {
-                $cabecalho = $omieDados['pedido_venda_produto']['cabecalho'];
-
-                // Cria automaticamente o pedido no banco
-                \App\Models\Pedido::create([
-                    'codigo_pedido' => $cabecalho['numero_pedido'],
-                    'descricao' => $omieDados['pedido_venda_produto']['det'][0]['produto']['descricao'] ?? 'Produto não informado',
-                    'quantidade' => $cabecalho['quantidade_itens'] ?? 1,
-                    'observacoes' => $omieDados['pedido_venda_produto']['observacoes']['obs_venda'] ?? 'Sem observações',
-                    'inicio_embalagem' => null,
-                    'fim_embalagem' => null,
-                ]);
-
-                // Recarrega a lista atualizada
-                $pedidos = \App\Models\Pedido::where('codigo_pedido', $codigo)->get();
-            }
-        }
-
-        return view('embalagem.index', compact('pedidos', 'data', 'codigo', 'omieDados'));
-    }
 
     public function start($id)
     {
@@ -85,8 +68,8 @@ class PedidoController extends Controller
                 'apenas_importado_api' => 'N',
                 'status_pedido' => 'FATURADO',
                 'etapa' => 60,
-                "data_faturamento_de" => "16/06/2024",
-                "data_faturamento_ate" => "16/06/2025"
+                "data_faturamento_de" => now()->subDays(15)->format('d/m/Y'),
+                "data_faturamento_ate" => now()->addDays(15)->format('d/m/Y'),
             ]]
         ]);
 
@@ -109,4 +92,28 @@ class PedidoController extends Controller
         }
         return redirect()->back()->with('success', 'Pedidos atualizados com sucesso!');
     }
+
+    public function atualizarValor(Request $request, Pedido $pedido)
+    {
+        $valor = str_replace(',', '.', $request->input('valor'));
+
+        \Log::info("Atualizando valor para o pedido #{$pedido->id}: R$ {$valor}");
+
+        $pedido->update([
+            'valor' => $valor,
+        ]);
+
+        return redirect()->back()->with('success', 'Valor atualizado.');
+    }
+
+
+    public function embalados(Request $request)
+    {
+        $pedidos = Pedido::whereNotNull('inicio_embalagem')
+                 ->whereNotNull('fim_embalagem')
+                 ->get();
+
+        return view('embalagem.embalados', compact('pedidos'));
+    }
+
 }
