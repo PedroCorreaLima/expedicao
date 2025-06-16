@@ -24,8 +24,9 @@ public function index(Request $request)
               ->orWhereNull('fim_embalagem');
         })
         ->get();
+        $totalPendentes = $pedidos->count();
 
-    return view('embalagem.index', compact('pedidos', 'data', 'codigo'));
+    return view('embalagem.index', compact('pedidos', 'data', 'codigo', 'totalPendentes'));
 }
 
 
@@ -76,21 +77,23 @@ public function index(Request $request)
         $dados = $response->json();
 
         foreach ($dados['pedido_venda_produto'] ?? [] as $pedido) {
-        Pedido::updateOrCreate(
-            ['codigo_pedido' => $pedido['cabecalho']['numero_pedido']],
-            [
-                'descricao' => $pedido['det'][0]['produto']['descricao'] ?? 'Sem descrição',
-                'quantidade' => $pedido['cabecalho']['quantidade_itens'] ?? 1,
-                'observacoes' => $pedido['observacoes']['obs_venda'] ?? 'Sem observações',
-                'cliente' => $pedido['cabecalho']['codigo_cliente'],
-                'data_previsao' => $pedido['cabecalho']['data_previsao'] ?? null,
-                'status' => 'FATURADO',
-                'etapa' => 60,
-                'dados_brutos' => json_encode($pedido),
-            ]
-        );
+            $codigoPedido = $pedido['cabecalho']['numero_pedido'];
+
+            if (!Pedido::where('codigo_pedido', $codigoPedido)->exists()) {
+                Pedido::create([
+                    'codigo_pedido' => $codigoPedido,
+                    'descricao' => $pedido['det'][0]['produto']['descricao'] ?? 'Sem descrição',
+                    'quantidade' => $pedido['cabecalho']['quantidade_itens'] ?? 1,
+                    'observacoes' => $pedido['observacoes']['obs_venda'] ?? 'Sem observações',
+                    'cliente' => $pedido['cabecalho']['codigo_cliente'],
+                    'data_previsao' => $pedido['cabecalho']['data_previsao'] ?? null,
+                    'status' => 'FATURADO',
+                    'etapa' => 60,
+                    'dados_brutos' => json_encode($pedido),
+                ]);
+            }
         }
-        return redirect()->back()->with('success', 'Pedidos atualizados com sucesso!');
+        return redirect()->back()->with('success', 'Pedidos atualizados com sucesso.');
     }
 
     public function atualizarValor(Request $request, Pedido $pedido)
