@@ -114,7 +114,7 @@
         <table>
             <thead>
                 <tr>
-                    <th>Código</th>
+                    <th>Número</th>
                     <th>Descrição</th>
                     <th>Quantidade</th>
                     <th>Valor Estimado</th>
@@ -126,7 +126,7 @@
             <tbody>
                 @forelse ($pedidos as $pedido)
                     <tr>
-                        <td>{{ $pedido->codigo_pedido }}</td>
+                        <td>{{ $pedido->numero_pedido }}</td>
                         <td>{{ $pedido->descricao }}</td>
                         <td>{{ $pedido->quantidade }}</td>
                         <td>R$ {{ number_format($pedido->valor ?? 0, 2, ',', '.') }}</td>

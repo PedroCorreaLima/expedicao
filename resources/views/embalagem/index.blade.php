@@ -171,7 +171,7 @@
     <table>
         <thead>
         <tr>
-            <th>Código</th>
+            <th>Número</th>
             <th>Descrição</th>
             <th>Qtd.</th>
             <th>Valor Est.</th>
@@ -182,64 +182,91 @@
         </tr>
         </thead>
         <tbody>
-        @foreach ($pedidos as $pedido)
-            <tr>
-                <td>{{ $pedido->codigo_pedido }}</td>
-                <td>{{ $pedido->descricao }}</td>
-                <td>{{ $pedido->quantidade }}</td>
-                <td>
-                    @if ($pedido->valor)
-                        <strong>R$ {{ number_format($pedido->valor, 2, ',', '.') }}</strong>
-                    @endif
-                    <form method="POST" action="{{ route('embalagem.valor', $pedido->id) }}">
-                        @csrf
-                        <input type="text" name="valor" value="{{ number_format($pedido->valor ?? 0, 2, ',', '.') }}" />
-                        <button type="submit">💾</button>
-                    </form>
-                </td>
-                <td>
-                    <div class="obs-box" onclick="toggleObs(this)">
-                        {{ $pedido->observacoes }}
-                    </div>
-                </td>
-                <td>{{ $pedido->inicio_embalagem ? \Carbon\Carbon::parse($pedido->inicio_embalagem)->format('d/m/Y H:i:s') : '-' }}</td>
-                <td>{{ $pedido->fim_embalagem ? \Carbon\Carbon::parse($pedido->fim_embalagem)->format('d/m/Y H:i:s') : '-' }}</td>
-                <td>
-                    @if (!$pedido->inicio_embalagem)
-                        <form method="POST" action="{{ route('embalagem.start', $pedido->id) }}">
+            @php
+                $lastPedido = null;
+                $toggleColor = false;
+            @endphp
+
+            @foreach ($pedidos as $pedido)
+                @php
+                    if ($pedido->numero_pedido !== $lastPedido) {
+                        $toggleColor = !$toggleColor;
+                        $lastPedido = $pedido->numero_pedido;
+                    }
+                    $rowClass = $toggleColor ? 'bg-lightblue' : 'bg-white';
+                @endphp
+
+                <tr class="{{ $rowClass }}">
+                    <style>
+                        .bg-lightblue { background-color:rgb(230, 230, 255); } /* Azul claro */
+                        .bg-white { background-color: #ffffff; }
+                    </style>
+                    <td>{{ $pedido->numero_pedido }}</td>
+                    <td>{{ $pedido->descricao }}</td>
+                    <td>{{ $pedido->quantidade }}</td>
+                    <td>
+                        <form method="POST" action="{{ route('embalagem.valor', $pedido->id) }}">
                             @csrf
-                            <button type="submit" class="btn btn-success">Iniciar</button>
+                            <input type="text" name="valor" value="{{ number_format($pedido->valor ?? 0, 2, ',', '.') }}" />
+                            <button type="submit">💾</button>
                         </form>
-                    @elseif (!$pedido->fim_embalagem)
-                        <form method="POST" action="{{ route('embalagem.stop', $pedido->id) }}" style="display:inline-block">
-                            @csrf
-                            <button type="submit" class="btn btn-danger">Finalizar</button>
-                        </form>
-                        <form method="POST" action="{{ route('embalagem.reiniciar', $pedido->id) }}" style="display:inline-block; margin-left:5px;">
-                            @csrf
-                            <button type="submit" class="btn btn-secondary">Reiniciar</button>
-                        </form>
-                    @else
-                        <span class="badge">Concluído</span>
-                        <form method="POST" action="{{ route('embalagem.reiniciar', $pedido->id) }}" style="display:inline-block; margin-left:5px;">
-                            @csrf
-                            <button type="submit" class="btn btn-secondary"
-                                    onclick="return confirm('Deseja reiniciar o controle de embalagem deste pedido?')">
-                                Reiniciar
-                            </button>
-                        </form>
-                    @endif
-                </td>
-            </tr>
-            <script>
-            function toggleObs(element) {
-                element.classList.toggle('expanded');
-            }
-            </script>
-        @endforeach
+                    </td>
+                    <td>
+                        <div class="obs-preview" onclick="toggleObservacao(this)">
+                            {{ Str::limit($pedido->observacoes, 120) }}
+                            <span class="ver-mais">[ver mais]</span>
+                        </div>
+                        <div class="obs-completo" style="display:none;" onclick="toggleObservacao(this)">
+                            {{ $pedido->observacoes }}
+                            <span class="ver-menos">[recolher]</span>
+                        </div>
+                    </td>
+                    <td>{{ $pedido->inicio_embalagem ? \Carbon\Carbon::parse($pedido->inicio_embalagem)->format('d/m/Y H:i:s') : '-' }}</td>
+                    <td>{{ $pedido->fim_embalagem ? \Carbon\Carbon::parse($pedido->fim_embalagem)->format('d/m/Y H:i:s') : '-' }}</td>
+                    <td>
+                        @if (!$pedido->inicio_embalagem)
+                            <form method="POST" action="{{ route('embalagem.start', $pedido->id) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-success">Iniciar</button>
+                            </form>
+                        @elseif (!$pedido->fim_embalagem)
+                            <form method="POST" action="{{ route('embalagem.stop', $pedido->id) }}" style="display:inline-block">
+                                @csrf
+                                <button type="submit" class="btn btn-danger">Finalizar</button>
+                            </form>
+                            <form method="POST" action="{{ route('embalagem.reiniciar', $pedido->id) }}" style="display:inline-block; margin-left:5px;">
+                                @csrf
+                                <button type="submit" class="btn btn-secondary">Reiniciar</button>
+                            </form>
+                        @else
+                            <span class="badge">Concluído</span>
+                            <form method="POST" action="{{ route('embalagem.reiniciar', $pedido->id) }}" style="display:inline-block; margin-left:5px;">
+                                @csrf
+                                <button type="submit" class="btn btn-secondary"
+                                        onclick="return confirm('Deseja reiniciar o controle de embalagem deste item?')">
+                                    Reiniciar
+                                </button>
+                            </form>
+                        @endif
+                    </td>
+                </tr>
+            @endforeach
         </tbody>
     </table>
 </div>
+<script>
+function toggleObservacao(elemento) {
+    const preview = elemento.parentElement.querySelector('.obs-preview');
+    const completo = elemento.parentElement.querySelector('.obs-completo');
 
+    if (elemento.classList.contains('obs-preview')) {
+        preview.style.display = 'none';
+        completo.style.display = 'block';
+    } else {
+        preview.style.display = 'block';
+        completo.style.display = 'none';
+    }
+}
+</script>
 </body>
 </html>

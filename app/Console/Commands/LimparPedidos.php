@@ -12,7 +12,7 @@ class LimparPedidos extends Command
 
     public function handle()
     {
-        DB::table('pedidos')->truncate();
+        DB::table('pedido_itens')->truncate();
         $this->info('Tabela pedidos limpa com sucesso.');
     }
 }

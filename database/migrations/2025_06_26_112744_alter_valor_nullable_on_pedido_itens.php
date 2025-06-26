@@ -11,9 +11,13 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('pedidos', function (Blueprint $table) {
-            $table->unique('codigo_pedido');
+        Schema::table('pedido_itens', function (Blueprint $table) {
+            $table->decimal('valor')->nullable()->change();
+            $table->string('numero_pedido')->change();
+                        $table->string('descricao')->change(); // Descrição do item
+            $table->integer('quantidade')->change();
         });
+
     }
 
     /**
@@ -21,8 +25,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('pedidos', function (Blueprint $table) {
-            $table->dropUnique(['codigo_pedido']);
-        });
+        //
     }
 };

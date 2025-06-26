@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Carbon\Carbon;
-use App\Models\Pedido;
+use App\Models\PedidoItem;
 use App\Services\OmiePedidoService;
 use Illuminate\Support\Facades\Http;
 
@@ -16,9 +16,9 @@ public function index(Request $request)
     $data = $request->input('data');
     $codigo = $request->input('codigo');
 
-    $pedidos = \App\Models\Pedido::query()
+    $pedidos = \App\Models\PedidoItem::query()
         ->when($data, fn($q) => $q->whereDate('inicio_embalagem', $data))
-        ->when($codigo, fn($q) => $q->where('codigo_pedido', $codigo))
+        ->when($codigo, fn($q) => $q->where('numero_pedido', $codigo))
         ->where(function ($q) {
             $q->whereNull('inicio_embalagem')
               ->orWhereNull('fim_embalagem');
@@ -32,7 +32,7 @@ public function index(Request $request)
 
     public function start($id)
     {
-        $pedido = Pedido::findOrFail($id);
+        $pedido = PedidoItem::findOrFail($id);
         $pedido->inicio_embalagem = Carbon::now();
         $pedido->save();
         return redirect()->back();
@@ -40,14 +40,14 @@ public function index(Request $request)
 
     public function stop($id)
     {
-        $pedido = Pedido::findOrFail($id);
+        $pedido = PedidoItem::findOrFail($id);
         $pedido->fim_embalagem = Carbon::now();
         $pedido->save();
         return redirect()->back();
     }
     public function reiniciar($id)
     {
-        $pedido = Pedido::findOrFail($id);
+        $pedido = PedidoItem::findOrFail($id);
         $pedido->inicio_embalagem = null;
         $pedido->fim_embalagem = null; // opcional: limpa também o fim
         $pedido->save();
@@ -57,46 +57,83 @@ public function index(Request $request)
     
     public function atualizarPedidos(Request $request)
     {
-        $response = Http::withHeaders([
-            'Content-Type' => 'application/json',
-        ])->post('https://app.omie.com.br/api/v1/produtos/pedido/', [
-            'call'     => 'ListarPedidos',
-            'app_key'    => config('services.omie.app_key'),
-            'app_secret' => config('services.omie.app_secret'),
-            'param'    => [[
-                'pagina' => 1,
-                'registros_por_pagina' => 200,
-                'apenas_importado_api' => 'N',
-                'status_pedido' => 'FATURADO',
-                'etapa' => 60,
-                "data_faturamento_de" => now()->subDays(15)->format('d/m/Y'),
-                "data_faturamento_ate" => now()->addDays(15)->format('d/m/Y'),
-            ]]
-        ]);
+        set_time_limit(900); // 5 minutos
 
-        $dados = $response->json();
-
-        foreach ($dados['pedido_venda_produto'] ?? [] as $pedido) {
-            $codigoPedido = $pedido['cabecalho']['numero_pedido'];
-
-            if (!Pedido::where('codigo_pedido', $codigoPedido)->exists()) {
-                Pedido::create([
-                    'codigo_pedido' => $codigoPedido,
-                    'descricao' => $pedido['det'][0]['produto']['descricao'] ?? 'Sem descrição',
-                    'quantidade' => $pedido['cabecalho']['quantidade_itens'] ?? 1,
-                    'observacoes' => $pedido['observacoes']['obs_venda'] ?? 'Sem observações',
-                    'cliente' => $pedido['cabecalho']['codigo_cliente'],
-                    'data_previsao' => $pedido['cabecalho']['data_previsao'] ?? null,
-                    'status' => 'FATURADO',
+        $pagina = 1;
+        do {
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+            ])->post('https://app.omie.com.br/api/v1/produtos/pedido/', [
+                'call'       => 'ListarPedidos',
+                'app_key'    => config('services.omie.app_key'),
+                'app_secret' => config('services.omie.app_secret'),
+                'param'      => [[
+                    'pagina' => $pagina,
+                    'registros_por_pagina' => 50,
+                    'apenas_importado_api' => 'N',
+                    'status_pedido' => 'FATURADO',
                     'etapa' => 60,
-                    'dados_brutos' => json_encode($pedido),
-                ]);
+                    "data_faturamento_de" => now()->subDays(45)->format('d/m/Y'),
+                    "data_faturamento_ate" => now()->addDays(45)->format('d/m/Y'),
+                ]]
+            ]);
+
+            $dados = $response->json();
+
+            foreach ($dados['pedido_venda_produto'] ?? [] as $pedido) {
+                $numeroPedido = $pedido['cabecalho']['numero_pedido'];
+
+                // CONSULTAR PEDIDO DETALHADO
+                $detalhado = Http::post('https://app.omie.com.br/api/v1/produtos/pedido/', [
+                    'call'       => 'ConsultarPedido',
+                    'app_key'    => config('services.omie.app_key'),
+                    'app_secret' => config('services.omie.app_secret'),
+                    'param'      => [[ 'numero_pedido' => $numeroPedido ]]
+                ])->json();
+
+                $itens = $detalhado['pedido_venda_produto']['det'] ?? [];
+
+                foreach ($itens as $item) {
+                    $descricao = $item['produto']['descricao'] ?? 'Sem descrição';
+                    $quantidade = $item['produto']['quantidade'] ?? 1;
+                    $codigoItem = $item['produto']['codigo'] ?? null;
+
+                    $jaExiste = PedidoItem::where('numero_pedido', $numeroPedido)
+                        ->where('codigo_pedido', $codigoItem)
+                        ->first();
+
+                    if (!$jaExiste) {
+                        PedidoItem::create([
+                            'numero_pedido'   => $numeroPedido,
+                            'codigo_pedido'     => $codigoItem,
+                            'descricao'       => $descricao,
+                            'quantidade'      => $quantidade,
+                            'observacoes'     => $detalhado['pedido_venda_produto']['observacoes']['obs_venda'] ?? null,
+                            'data_previsao' => isset($detalhado['pedido_venda_produto']['cabecalho']['data_previsao'])
+                                ? \Carbon\Carbon::createFromFormat('d/m/Y', $detalhado['pedido_venda_produto']['cabecalho']['data_previsao'])
+                                : null,                            
+                        ]);
+                    } elseif (!$jaExiste->inicio_embalagem && !$jaExiste->fim_embalagem) {
+                        // Atualiza dados básicos apenas se ainda não iniciado/embalado
+                        $jaExiste->update([
+                            'descricao'     => $descricao,
+                            'quantidade'    => $quantidade,
+                            'observacoes'   => $detalhado['pedido_venda_produto']['observacoes']['obs_venda'] ?? null,
+                            'data_previsao' => isset($detalhado['pedido_venda_produto']['cabecalho']['data_previsao'])
+                                ? \Carbon\Carbon::createFromFormat('d/m/Y', $detalhado['pedido_venda_produto']['cabecalho']['data_previsao'])
+                                : null,  
+                        ]);
+                    }
+                }
             }
-        }
-        return redirect()->back()->with('success', 'Pedidos atualizados com sucesso.');
+
+            $pagina++;
+        } while (!empty($dados['pedido_venda_produto']));
+
+        return redirect()->back()->with('success', 'Pedidos e itens atualizados com sucesso.');
     }
 
-    public function atualizarValor(Request $request, Pedido $pedido)
+    public function atualizarValor(Request $request, PedidoItem $pedido)
     {
         $valor = str_replace(',', '.', $request->input('valor'));
 
@@ -112,9 +149,11 @@ public function index(Request $request)
 
     public function embalados(Request $request)
     {
-        $pedidos = Pedido::whereNotNull('inicio_embalagem')
+        $pedidos = PedidoItem::whereNotNull('inicio_embalagem')
                  ->whereNotNull('fim_embalagem')
                  ->get();
+
+        $pedidos = PedidoItem::orderBy('numero_pedido')->get();
 
         return view('embalagem.embalados', compact('pedidos'));
     }
