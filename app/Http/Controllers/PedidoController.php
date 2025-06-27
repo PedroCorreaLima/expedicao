@@ -14,6 +14,7 @@ class PedidoController extends Controller
 {
     public function index(Request $request)
     {
+        
         $data = $request->input('data');
         $codigo = $request->input('codigo');
 

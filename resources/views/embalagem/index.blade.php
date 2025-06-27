@@ -183,7 +183,15 @@
             <button type="submit" class="btn btn-success">🔄 Atualizar Pedidos Faturados</button>
         </form>
 </div>
+
+
 </header>
+<form method="GET" action="{{ route('embalagem.index') }}" class="mb-3 d-flex align-items-center" style="gap: 10px;">
+    <label for="codigo" class="mb-0">🔎 Consultar Pedido:</label>
+    <input type="text" id="codigo" name="codigo" value="{{ $codigo }}" class="form-control" style="width: 120px;" placeholder="Ex: 91266">
+    <button type="submit" class="btn btn-primary">Buscar</button>
+    <a href="{{ route('embalagem.index') }}" class="btn btn-secondary">Limpar</a>
+</form>
 <table>
     <thead>
         <tr>
