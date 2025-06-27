@@ -11,8 +11,9 @@ class LimparPedidos extends Command
     protected $description = 'Remove todos os registros da tabela pedidos';
 
     public function handle()
+
     {
-        DB::table('pedido_itens')->truncate();
+        DB::table('pedidos')->truncate();
         $this->info('Tabela pedidos limpa com sucesso.');
     }
 }

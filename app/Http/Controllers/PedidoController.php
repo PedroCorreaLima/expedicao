@@ -5,34 +5,34 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use App\Models\PedidoItem;
+use App\Models\Pedido;
 use App\Services\OmiePedidoService;
 use Illuminate\Support\Facades\Http;
 
 
 class PedidoController extends Controller
 {
-public function index(Request $request)
-{
-    $data = $request->input('data');
-    $codigo = $request->input('codigo');
+    public function index(Request $request)
+    {
+        $data = $request->input('data');
+        $codigo = $request->input('codigo');
 
-    $pedidos = \App\Models\PedidoItem::query()
-        ->when($data, fn($q) => $q->whereDate('inicio_embalagem', $data))
-        ->when($codigo, fn($q) => $q->where('numero_pedido', $codigo))
-        ->where(function ($q) {
-            $q->whereNull('inicio_embalagem')
-              ->orWhereNull('fim_embalagem');
-        })
-        ->get();
+        $pedidos = Pedido::whereNull('fim_embalagem')
+            ->when($codigo, fn($q) => $q->where('numero_pedido', $codigo))
+            ->with('itens') // ✅ traz os itens relacionados
+            ->orderBy('numero_pedido')
+            ->get();
+
         $totalPendentes = $pedidos->count();
 
-    return view('embalagem.index', compact('pedidos', 'data', 'codigo', 'totalPendentes'));
-}
+        return view('embalagem.index', compact('pedidos', 'data', 'codigo', 'totalPendentes'));
+    }
+
 
 
     public function start($id)
     {
-        $pedido = PedidoItem::findOrFail($id);
+        $pedido = Pedido::findOrFail($id);
         $pedido->inicio_embalagem = Carbon::now();
         $pedido->save();
         return redirect()->back();
@@ -40,14 +40,14 @@ public function index(Request $request)
 
     public function stop($id)
     {
-        $pedido = PedidoItem::findOrFail($id);
+        $pedido = Pedido::findOrFail($id);
         $pedido->fim_embalagem = Carbon::now();
         $pedido->save();
         return redirect()->back();
     }
     public function reiniciar($id)
     {
-        $pedido = PedidoItem::findOrFail($id);
+        $pedido = Pedido::findOrFail($id);
         $pedido->inicio_embalagem = null;
         $pedido->fim_embalagem = null; // opcional: limpa também o fim
         $pedido->save();
@@ -57,83 +57,90 @@ public function index(Request $request)
     
     public function atualizarPedidos(Request $request)
     {
-        set_time_limit(900); // 5 minutos
-
+        set_time_limit(3000);
         $pagina = 1;
         do {
-            $response = Http::withHeaders([
-                'Content-Type' => 'application/json',
-            ])->post('https://app.omie.com.br/api/v1/produtos/pedido/', [
-                'call'       => 'ListarPedidos',
-                'app_key'    => config('services.omie.app_key'),
-                'app_secret' => config('services.omie.app_secret'),
-                'param'      => [[
-                    'pagina' => $pagina,
-                    'registros_por_pagina' => 50,
-                    'apenas_importado_api' => 'N',
-                    'status_pedido' => 'FATURADO',
-                    'etapa' => 60,
-                    "data_faturamento_de" => now()->subDays(45)->format('d/m/Y'),
-                    "data_faturamento_ate" => now()->addDays(45)->format('d/m/Y'),
-                ]]
-            ]);
+            try {
+                $response = Http::timeout(30)->connectTimeout(10)->retry(3, 1000)
+                    ->post('https://app.omie.com.br/api/v1/produtos/pedido/', [
+                        'call'       => 'ListarPedidos',
+                        'app_key'    => config('services.omie.app_key'),
+                        'app_secret' => config('services.omie.app_secret'),
+                        'param'      => [[
+                            'pagina' => $pagina,
+                            'registros_por_pagina' => 50,
+                            'apenas_importado_api' => 'N',
+                            'status_pedido' => 'FATURADO',
+                            'etapa' => 60,
+                            "data_faturamento_de" => now()->subDays(45)->format('d/m/Y'),
+                            "data_faturamento_ate" => now()->addDays(45)->format('d/m/Y'),
+                        ]]
+                    ]);
 
-            $dados = $response->json();
+                $body = $response->json();
 
-            foreach ($dados['pedido_venda_produto'] ?? [] as $pedido) {
-                $numeroPedido = $pedido['cabecalho']['numero_pedido'];
+            if ($response->status() === 500 && str_contains($body['faultstring'] ?? '', 'Não existem registros')) {
+                break; // finaliza o loop normalmente
+            }
 
-                // CONSULTAR PEDIDO DETALHADO
-                $detalhado = Http::post('https://app.omie.com.br/api/v1/produtos/pedido/', [
-                    'call'       => 'ConsultarPedido',
-                    'app_key'    => config('services.omie.app_key'),
-                    'app_secret' => config('services.omie.app_secret'),
-                    'param'      => [[ 'numero_pedido' => $numeroPedido ]]
-                ])->json();
+            if ($response->failed()) {
+                \Log::error("Erro ao listar pedidos na página $pagina: " . json_encode($body));
+                return redirect()->back()->withErrors([
+                    'error' => 'Erro na comunicação com a API da Omie.'
+                ]);
+            }
 
-                $itens = $detalhado['pedido_venda_produto']['det'] ?? [];
+                foreach ($body['pedido_venda_produto'] ?? [] as $pedidoResumo) {
+                    $numeroPedido = $pedidoResumo['cabecalho']['numero_pedido'];
+                    try {
+                        $detalhado = Http::timeout(30)->connectTimeout(10)->retry(3,1000)
+                            ->post('https://app.omie.com.br/api/v1/produtos/pedido/', [
+                            'call'       => 'ConsultarPedido',
+                            'app_key'    => config('services.omie.app_key'),
+                            'app_secret' => config('services.omie.app_secret'),
+                            'param'      => [[ 'numero_pedido' => $numeroPedido ]]
+                        ])->throw()->json();
+                    } catch (\Exception $e) {
+                        \Log::error("Erro ao consultar detalhes do pedido $numeroPedido: ".$e->getMessage());
+                        continue;
+                    }
 
-                foreach ($itens as $item) {
-                    $descricao = $item['produto']['descricao'] ?? 'Sem descrição';
-                    $quantidade = $item['produto']['quantidade'] ?? 1;
-                    $codigoItem = $item['produto']['codigo'] ?? null;
+                    // Cria pedido cabeçalho só se não existir
+                    $pedidoModel = Pedido::firstOrCreate(
+                        ['numero_pedido' => $numeroPedido],
+                        [
+                            'observacoes'      => $detalhado['pedido_venda_produto']['observacoes']['obs_venda'] ?? null,
+                            'inicio_embalagem' => null,
+                            'fim_embalagem'    => null
+                        ]
+                    );
 
-                    $jaExiste = PedidoItem::where('numero_pedido', $numeroPedido)
-                        ->where('codigo_pedido', $codigoItem)
-                        ->first();
-
-                    if (!$jaExiste) {
-                        PedidoItem::create([
-                            'numero_pedido'   => $numeroPedido,
-                            'codigo_pedido'     => $codigoItem,
-                            'descricao'       => $descricao,
-                            'quantidade'      => $quantidade,
-                            'observacoes'     => $detalhado['pedido_venda_produto']['observacoes']['obs_venda'] ?? null,
-                            'data_previsao' => isset($detalhado['pedido_venda_produto']['cabecalho']['data_previsao'])
-                                ? \Carbon\Carbon::createFromFormat('d/m/Y', $detalhado['pedido_venda_produto']['cabecalho']['data_previsao'])
-                                : null,                            
-                        ]);
-                    } elseif (!$jaExiste->inicio_embalagem && !$jaExiste->fim_embalagem) {
-                        // Atualiza dados básicos apenas se ainda não iniciado/embalado
-                        $jaExiste->update([
-                            'descricao'     => $descricao,
-                            'quantidade'    => $quantidade,
-                            'observacoes'   => $detalhado['pedido_venda_produto']['observacoes']['obs_venda'] ?? null,
-                            'data_previsao' => isset($detalhado['pedido_venda_produto']['cabecalho']['data_previsao'])
-                                ? \Carbon\Carbon::createFromFormat('d/m/Y', $detalhado['pedido_venda_produto']['cabecalho']['data_previsao'])
-                                : null,  
-                        ]);
+                    foreach ($detalhado['pedido_venda_produto']['det'] ?? [] as $item){
+                        PedidoItem::firstOrCreate(
+                            ['numero_pedido' => $numeroPedido, 'descricao' => $item['produto']['descricao']],
+                            ['quantidade' => $item['produto']['quantidade'] ?? 1]
+                        );
                     }
                 }
+            } catch (\Illuminate\Http\Client\RequestException $e) {
+                \Log::error("Erro ao listar pedidos na página $pagina: " . $e->getMessage());
+
+                if (str_contains($e->getMessage(), 'Não existem registros para a página')) {
+                    break; // encerra loop normalmente
+                }
+
+                return redirect()->back()->withErrors([
+                    'error' => "Erro ao listar pedidos: " . $e->getMessage()
+                ]);
             }
 
             $pagina++;
-        } while (!empty($dados['pedido_venda_produto']));
-
-        return redirect()->back()->with('success', 'Pedidos e itens atualizados com sucesso.');
+        } while (!empty($body['pedido_venda_produto']));
+        return redirect()->back()->with('success','Atualização concluída.');
     }
 
-    public function atualizarValor(Request $request, PedidoItem $pedido)
+
+    public function atualizarValor(Request $request, Pedido $pedido)
     {
         $valor = str_replace(',', '.', $request->input('valor'));
 
@@ -149,12 +156,7 @@ public function index(Request $request)
 
     public function embalados(Request $request)
     {
-        $pedidos = PedidoItem::whereNotNull('inicio_embalagem')
-                 ->whereNotNull('fim_embalagem')
-                 ->get();
-
-        $pedidos = PedidoItem::orderBy('numero_pedido')->get();
-
+        $pedidos = Pedido::whereNotNull('fim_embalagem')->get(); // ✅ apenas finalizados
         return view('embalagem.embalados', compact('pedidos'));
     }
 

@@ -97,50 +97,69 @@
         }
     </style>
 </head>
-<body>
-    <header>
-        <div class="header-left">
-            <img src="/images/logo.png" alt="Logo TecnoPonto">
-            <div class="nav-buttons">
-                <a href="{{ route('embalagem.index') }}" class="btn btn-outline-primary">🚩 Pendentes</a>
-                <a href="{{ route('embalagem.embalados') }}" class="btn btn-outline-success">✅ Finalizados</a>
+    <body>
+        <header>
+            <div class="header-left">
+                <img src="/images/logo.png" alt="Logo TecnoPonto">
+                <div class="nav-buttons">
+                    <a href="{{ route('embalagem.index') }}" class="btn btn-outline-primary">🚩 Pendentes</a>
+                    <a href="{{ route('embalagem.embalados') }}" class="btn btn-outline-success">✅ Finalizados</a>
+                </div>
             </div>
+        </header>
+
+        <div class="container">
+            <h1>Pedidos Finalizados</h1>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Número</th>
+                        <th>Descrição</th>
+                        <th>Quantidade</th>
+                        <th>Valor Estimado</th>
+                        <th>Observações</th>
+                        <th>Início</th>
+                        <th>Fim</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($pedidos as $pedido)
+                        @php
+                            $itens = $pedido->itens;
+                        @endphp
+                        @foreach ($itens as $index => $item)
+                            <tr>
+                                @if ($index === 0)
+                                    <td rowspan="{{ $itens->count() }}">{{ $pedido->numero_pedido }}</td>
+                                @endif
+
+                                <td>{{ $item->descricao }}</td>
+                                <td>{{ $item->quantidade }}</td>
+
+                                @if ($index === 0)
+                                    <td rowspan="{{ $itens->count() }}">R$ {{ number_format($pedido->valor ?? 0, 2, ',', '.') }}</td>
+                                    <td rowspan="{{ $itens->count() }}" style="white-space: pre-wrap;">
+                                        <div class="obs-completo d-none">
+                                            {{ $pedido->observacoes }}
+                                        </div>
+                                    </td>
+                                    <td rowspan="{{ $itens->count() }}">
+                                        {{ $pedido->inicio_embalagem ? \Carbon\Carbon::parse($pedido->inicio_embalagem)->format('d/m/Y H:i:s') : '-' }}
+                                    </td>
+                                    <td rowspan="{{ $itens->count() }}">
+                                        {{ $pedido->fim_embalagem ? \Carbon\Carbon::parse($pedido->fim_embalagem)->format('d/m/Y H:i:s') : '-' }}
+                                    </td>
+                                @endif
+                            </tr>
+                        @endforeach
+                    @empty
+                        <tr>
+                            <td colspan="7">Nenhum pedido finalizado encontrado.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
         </div>
-    </header>
-
-    <div class="container">
-        <h1>Pedidos Finalizados</h1>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Número</th>
-                    <th>Descrição</th>
-                    <th>Quantidade</th>
-                    <th>Valor Estimado</th>
-                    <th>Observações</th>
-                    <th>Início</th>
-                    <th>Fim</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse ($pedidos as $pedido)
-                    <tr>
-                        <td>{{ $pedido->numero_pedido }}</td>
-                        <td>{{ $pedido->descricao }}</td>
-                        <td>{{ $pedido->quantidade }}</td>
-                        <td>R$ {{ number_format($pedido->valor ?? 0, 2, ',', '.') }}</td>
-                        <td style="white-space: pre-wrap;">{{ $pedido->observacoes }}</td>
-                        <td>{{ \Carbon\Carbon::parse($pedido->inicio_embalagem)->format('d/m/Y H:i:s') }}</td>
-                        <td>{{ \Carbon\Carbon::parse($pedido->fim_embalagem)->format('d/m/Y H:i:s') }}</td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="7">Nenhum pedido finalizado encontrado.</td>
-                    </tr>
-                @endforelse
-            </tbody>
-        </table>
-    </div>
-</body>
+    </body>
 </html>

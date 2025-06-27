@@ -12,10 +12,10 @@ class PedidoItem extends Model
         'numero_pedido',      // ex: "93242"
         'descricao',
         'quantidade',
-        'valor',
-        'data_previsao',
-        'observacoes',
-        'inicio_embalagem',
-        'fim_embalagem',
     ];
+
+    public function pedido()
+    {
+        return $this->belongsTo(Pedido::class, 'numero_pedido', 'numero_pedido');
+    }
 }
