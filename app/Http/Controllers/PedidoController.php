@@ -59,6 +59,20 @@ class PedidoController extends Controller
     public function atualizarPedidos(Request $request)
     {
         set_time_limit(3000);
+
+        // Etapas desejadas
+        $etapas = [60, 70];
+
+        foreach ($etapas as $etapa) {
+            $this->consultarPedidosPorEtapa($etapa);
+        }
+
+        return redirect()->back()->with('success', 'Atualização concluída.');
+        
+    }
+
+    private function consultarPedidosPorEtapa(int $etapa)
+    {
         $pagina = 1;
 
         do {
@@ -73,7 +87,7 @@ class PedidoController extends Controller
                             'registros_por_pagina' => 50,
                             'apenas_importado_api' => 'N',
                             'status_pedido' => 'FATURADO',
-                            'etapa' => 60,
+                            'etapa' => $etapa,
                             'data_faturamento_de' => now()->subDays(45)->format('d/m/Y'),
                             'data_faturamento_ate' => now()->addDays(45)->format('d/m/Y'),
                         ]]
@@ -86,24 +100,20 @@ class PedidoController extends Controller
                 }
 
                 if ($response->failed()) {
-                    \Log::error("Erro ao listar pedidos na página $pagina: " . json_encode($body));
-                    return redirect()->back()->withErrors([
-                        'error' => 'Erro na comunicação com a API da Omie.'
-                    ]);
+                    \Log::error("Erro na etapa $etapa, página $pagina: " . json_encode($body));
+                    break;
                 }
 
                 $todosNumeros = collect($body['pedido_venda_produto'] ?? [])->pluck('cabecalho.numero_pedido')->toArray();
                 $existentes = Pedido::whereIn('numero_pedido', $todosNumeros)->pluck('numero_pedido')->toArray();
 
-                $novosPedidos = array_filter($body['pedido_venda_produto'] ?? [], function ($pedido) use ($existentes) {
-                    return !in_array($pedido['cabecalho']['numero_pedido'], $existentes);
-                });
+                $novosPedidos = array_filter($body['pedido_venda_produto'] ?? [], fn($pedido) => !in_array($pedido['cabecalho']['numero_pedido'], $existentes));
 
                 foreach ($novosPedidos as $pedidoResumo) {
                     $numeroPedido = $pedidoResumo['cabecalho']['numero_pedido'];
 
                     try {
-                        $detalhado = Http::timeout(30)->connectTimeout(10)->retry(3,1000)
+                        $detalhado = Http::timeout(30)->connectTimeout(10)->retry(3, 1000)
                             ->post('https://app.omie.com.br/api/v1/produtos/pedido/', [
                                 'call'       => 'ConsultarPedido',
                                 'app_key'    => config('services.omie.app_key'),
@@ -111,7 +121,7 @@ class PedidoController extends Controller
                                 'param'      => [[ 'numero_pedido' => $numeroPedido ]]
                             ])->throw()->json();
                     } catch (\Exception $e) {
-                        \Log::error("Erro ao consultar detalhes do pedido $numeroPedido: ".$e->getMessage());
+                        \Log::error("Erro ao consultar pedido $numeroPedido na etapa $etapa: ".$e->getMessage());
                         continue;
                     }
 
@@ -123,6 +133,7 @@ class PedidoController extends Controller
                             'fim_embalagem'    => null
                         ]
                     );
+                    \Log::info("Pedido #{$pedidoModel->numero_pedido} criado com sucesso.");
 
                     foreach ($detalhado['pedido_venda_produto']['det'] ?? [] as $item) {
                         PedidoItem::firstOrCreate(
@@ -132,22 +143,14 @@ class PedidoController extends Controller
                     }
                 }
             } catch (\Illuminate\Http\Client\RequestException $e) {
-                \Log::error("Erro ao listar pedidos na página $pagina: " . $e->getMessage());
-
-                if (str_contains($e->getMessage(), 'Não existem registros para a página')) {
-                    break;
-                }
-
-                return redirect()->back()->withErrors([
-                    'error' => "Erro ao listar pedidos: " . $e->getMessage()
-                ]);
+                \Log::error("Erro na etapa $etapa, página $pagina: " . $e->getMessage());
+                break;
             }
 
             $pagina++;
         } while (!empty($body['pedido_venda_produto']));
-
-        return redirect()->back()->with('success', 'Atualização concluída.');
     }
+
 
     public function atualizarValor(Request $request, Pedido $pedido)
     {
