@@ -167,7 +167,7 @@
 <header>
     <div class="header-left">
         <img src="{{ asset('images/logo.png') }}" alt="Logo TecnoPonto">
-        <span style="color: #fff; font-weight: bold;">Total Pedidos: {{ $totalPendentes }}</span>
+        <span style="color: #fff; font-weight: bold;">Total de Pedidos: {{ $totalPendentes }}</span>
 
         <div class="nav-buttons">
             <a href="{{ route('embalagem.index') }}" class="btn btn-primary">🚩 Pendentes</a>
